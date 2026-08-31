@@ -3,6 +3,14 @@
 
 module AOCLFFTZ
 
-greet() = print("Hello World!")
+using AOCL_jll
+using AbstractFFTs
+using LinearAlgebra
+
+import AbstractFFTs: Plan, plan_fft, plan_bfft, plan_inv, fftdims
+import LinearAlgebra: mul!
+
+include("bindings.jl")
+using ._Bindings
 
 end # module AOCLFFTZ

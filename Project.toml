@@ -1,11 +1,16 @@
 name = "AOCLFFTZ"
 uuid = "c14d92de-50f7-408b-9c39-3b09c53b67f9"
 version = "5.3.2"
+authors = ["Ashwin Godbole <dev.godboleashwin@gmail.com>"]
 
 [deps]
-AbstractFFTs = "621f4979-c628-5d54-868e-fcf4e3e8185c"
 AOCL_jll = "b124843c-0c82-53c8-91a7-62bfdd90e290"
+AbstractFFTs = "621f4979-c628-5d54-868e-fcf4e3e8185c"
+CEnum = "fa961155-64e5-5f13-b03f-caf6b980ea82"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
 [compat]
+AOCL_jll = "5.3"
 AbstractFFTs = "1"
+CEnum = "0.5.0"
 julia = "1.10"
