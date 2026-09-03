@@ -274,13 +274,44 @@ function AbstractFFTs.plan_brfft(
     )
 end
 
+function _rfft_output_size(input_size::NTuple{N,Int}, region::NTuple{R,Int}) where {N,R}
+    first_dim = first(region)
+    ntuple(i -> i == first_dim ? input_size[i] ÷ 2 + 1 : input_size[i], Val(N))
+end
+
+function _brfft_output_size(input_size::NTuple{N,Int}, region::NTuple{R,Int}, d::Int) where {N,R}
+    first_dim = first(region)
+    ntuple(i -> i == first_dim ? d : input_size[i], Val(N))
+end
+
 function LinearAlgebra.mul!(y::AbstractArray, p::AOCLFFTZPlan, x::AbstractArray)
+    is_real = p.prob.flags.fft_type == 1
+
     if size(x) != p.sz
         throw(DimensionMismatch("input size $(size(x)) does not match plan size $(p.sz)"))
     end
-    if size(y) != p.sz
-        throw(DimensionMismatch("output size $(size(y)) does not match plan size $(p.sz)"))
+
+    if is_real
+        if p.forward
+            # rfft: Real in, Complex out
+            expected = _rfft_output_size(p.sz, p.region)
+            if size(y) != expected
+                throw(DimensionMismatch("output size $(size(y)) does not match rfft output $expected"))
+            end
+        else
+            # brfft: Complex in, Real out
+            d = Int(p.dims[1].n)
+            expected = _brfft_output_size(p.sz, p.region, d)
+            if size(y) != expected
+                throw(DimensionMismatch("output size $(size(y)) does not match brfft output $expected for d=$d"))
+            end
+        end
+    else
+        if size(y) != p.sz
+            throw(DimensionMismatch("output size $(size(y)) does not match plan size $(p.sz)"))
+        end
     end
+
     if p.inplace
         if y !== x
             throw(ArgumentError("in-place plan requires y === x"))
@@ -313,7 +344,23 @@ function Base.:*(p::AOCLFFTZPlan, x::AbstractArray)
     if p.inplace
         throw(ArgumentError("in-place plan requires mul! with y === x; use mul!(x, p, x)"))
     end
-    y = similar(x)
+
+    is_real = p.prob.flags.fft_type == 1
+    y = if is_real
+        if p.forward
+            # rfft: allocate Complex output
+            ComplexT = Complex{eltype(x)}
+            Array{ComplexT}(undef, _rfft_output_size(p.sz, p.region))
+        else
+            # brfft: allocate Real output
+            d = Int(p.dims[1].n)
+            RealT = real(eltype(x))
+            Array{RealT}(undef, _brfft_output_size(p.sz, p.region, d))
+        end
+    else
+        similar(x)
+    end
+
     return mul!(y, p, x)
 end
 

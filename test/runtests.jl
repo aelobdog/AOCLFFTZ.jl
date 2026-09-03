@@ -142,6 +142,31 @@ import AOCLFFTZ._Bindings as B
         @test qb.dims[1].n == 16
     end
 
+    @testset "rfft and brfft execution" begin
+        xr = Float64[1, 2, 3, 4, 5, 6, 7, 8]
+        pr = plan_rfft(xr, 1)
+        yr = pr * xr
+        @test size(yr) == (5,)
+        @test eltype(yr) == ComplexF64
+
+        d = length(xr)
+        pb = plan_brfft(yr, d, 1)
+        zr = pb * yr
+        @test size(zr) == size(xr)
+        @test zr ≈ xr * d
+
+        y2 = similar(yr)
+        mul!(y2, pr, xr)
+        @test y2 ≈ yr
+
+        # single precision
+        xr32 = Float32[1, 2, 3, 4]
+        pr32 = plan_rfft(xr32, 1)
+        yr32 = pr32 * xr32
+        @test size(yr32) == (3,)
+        @test eltype(yr32) == ComplexF32
+    end
+
     @testset "in-place plans" begin
         x64 = rand(ComplexF64, 4, 4)
         p = plan_fft!(x64, 1:2)
