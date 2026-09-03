@@ -1,7 +1,7 @@
 using Test
 using AOCLFFTZ
 using AbstractFFTs
-using AbstractFFTs: fft, ifft, plan_bfft, plan_bfft!, plan_brfft, plan_fft, plan_fft!, plan_inv, plan_rfft, rfft
+using AbstractFFTs: bfft, brfft, fft, ifft, irfft, plan_bfft, plan_bfft!, plan_brfft, plan_fft, plan_fft!, plan_inv, plan_rfft, rfft
 using LinearAlgebra
 
 import AOCLFFTZ._Bindings as B
@@ -254,5 +254,25 @@ import AOCLFFTZ._Bindings as B
 
         # alias checks for out-of-place plan
         @test_throws ArgumentError mul!(x, p, x)
+    end
+
+    @testset "high-level wrappers fft/bfft/ifft/rfft" begin
+        x = ComplexF64[1, 2, 3, 4]
+        @test fft(x) ≈ plan_fft(x, 1) * x
+        @test bfft(x) ≈ plan_bfft(x, 1) * x
+        @test ifft(x) ≈ inv(plan_fft(x, 1)) * x / length(x)
+        @test ifft(fft(x)) ≈ x
+
+        xr = Float64[1, 2, 3, 4, 5, 6, 7, 8]
+        @test rfft(xr) ≈ plan_rfft(xr, 1) * xr
+        yr = rfft(xr)
+        @test brfft(yr, 8) ≈ plan_brfft(yr, 8, 1) * yr
+        @test irfft(yr, 8) ≈ yr |> y -> plan_brfft(y, 8, 1) * y |> y -> y / 8
+        @test irfft(rfft(xr), 8) ≈ xr
+
+        # 2D
+        x2 = rand(ComplexF64, 4, 4)
+        @test fft(x2) ≈ plan_fft(x2, 1:2) * x2
+        @test fft(x2, 1) ≈ plan_fft(x2, 1) * x2
     end
 end
