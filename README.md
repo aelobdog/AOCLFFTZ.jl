@@ -1,5 +1,7 @@
 # AOCLFFTZ.jl
 
+[![CI](https://github.com/aelobdog/AOCLFFTZ.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/aelobdog/AOCLFFTZ.jl/actions/workflows/CI.yml)
+
 Julia bindings for AMD's [AOCL FFTZ](https://github.com/amd/aocl-fftz) library,
 with an `AbstractFFTs.jl` compatible interface. If you know `FFTW.jl`, you
 already know how to use this - swap the `using` line and the rest should remain
