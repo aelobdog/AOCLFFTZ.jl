@@ -7,13 +7,13 @@ using AOCL_jll
 using AbstractFFTs
 using LinearAlgebra
 
-import AbstractFFTs: Plan, plan_bfft, plan_fft, plan_inv, fftdims
+import AbstractFFTs: Plan, plan_bfft, plan_brfft, plan_fft, plan_inv, plan_rfft, fftdims
 import LinearAlgebra: mul!
 
 include("bindings.jl")
 import ._Bindings as B
 
-mutable struct AOCLFFTZPlan{T<:Complex{<:AbstractFloat},N,D,P,R} <: Plan{T}
+mutable struct AOCLFFTZPlan{T,N,D,P,R} <: Plan{T}
     handle::Ptr{Cvoid}
     sz::NTuple{N,Int}
     region::NTuple{R,Int}
@@ -33,7 +33,7 @@ mutable struct AOCLFFTZPlan{T<:Complex{<:AbstractFloat},N,D,P,R} <: Plan{T}
         dims::Vector{D},
         vecs::Vector{D},
         prob::P,
-    ) where {T<:Complex{<:AbstractFloat},N,D,P,R}
+    ) where {T,N,D,P,R}
         p = new{T,N,D,P,R}(handle, sz, region, forward, inplace, dims, vecs, prob)
 
         finalizer(p) do plan
@@ -67,8 +67,9 @@ function _canonical_region(input::AbstractArray, region)
 end
 
 function _build_aocl_plan(
-    input::AbstractArray{T,N}, region::NTuple{R,Int}; forward::Bool, inplace::Bool, num_threads::Int=1
-) where {T<:Complex{<:AbstractFloat},N,R}
+    input::AbstractArray{T,N}, region::NTuple{R,Int}; forward::Bool, inplace::Bool, num_threads::Int=1,
+    is_real::Bool=false, brfft_length::Union{Nothing,Int}=nothing
+) where {T,N,R}
 
     input_size = size(input)
     input_strides = strides(input)
@@ -76,7 +77,9 @@ function _build_aocl_plan(
     batch_dims = filter(dim -> !(dim in region), 1:N)
 
     transform_dims = B.aoclfftz_dim_t_64_[
-        B.aoclfftz_dim_t_64_(input_size[dim], input_strides[dim], input_strides[dim]) for dim in region
+        let n = (is_real && brfft_length !== nothing && dim == first(region)) ? brfft_length : input_size[dim]
+            B.aoclfftz_dim_t_64_(n, input_strides[dim], input_strides[dim])
+        end for dim in region
     ]
 
     batch_vecs = if isempty(batch_dims)
@@ -92,8 +95,8 @@ function _build_aocl_plan(
     end
 
     execution_flags = B.aoclfftz_flags_t(
-        # fft type: complex
-        UInt8(0),
+        # fft type: 0 complex, 1 real
+        UInt8(is_real ? 1 : 0),
         # fft direction
         UInt8(forward ? 0 : 1),
         # in-order
@@ -124,8 +127,20 @@ function _build_aocl_plan(
         Int32(0),
     )
 
-    setup_input = Vector{T}(undef, length(input))
-    setup_output = inplace ? setup_input : Vector{T}(undef, length(input))
+    setup_input, setup_output = if is_real
+        if T <: AbstractFloat
+            # rfft: Real input, Complex output
+            (Vector{T}(undef, length(input)), Vector{Complex{T}}(undef, length(input)))
+        else
+            # brfft: Complex input, Real output
+            RealT = real(T)
+            (Vector{T}(undef, length(input)), Vector{RealT}(undef, length(input) * 2))
+        end
+    else
+        inp = Vector{T}(undef, length(input))
+        out = inplace ? inp : Vector{T}(undef, length(input))
+        (inp, out)
+    end
 
     handle = C_NULL
 
@@ -133,7 +148,8 @@ function _build_aocl_plan(
         transform_ptr = pointer(transform_dims)
         batch_ptr = pointer(batch_vecs)
 
-        if T == ComplexF32
+        is_single = T == Float32 || T == ComplexF32
+        if is_single
             prob = B.aoclfftz_prob_desc_f_64_(
                 Ptr{B.FFTZ_FLOAT}(pointer(setup_input)),
                 Ptr{B.FFTZ_FLOAT}(pointer(setup_output)),
@@ -167,8 +183,8 @@ function _build_aocl_plan(
             )
         end
 
-        # NOTE: stored_prob and prob could be one if AOCL-FFTZ allows C_NULL at setup in future versions
-        stored_prob = if T == ComplexF32
+        # NOTE: stored_prob and prob could be one if AOCL ever allows C_NULL at setup
+        stored_prob = if T == Float32 || T == ComplexF32
             B.aoclfftz_prob_desc_f_64_(
                 Ptr{B.FFTZ_FLOAT}(C_NULL),
                 Ptr{B.FFTZ_FLOAT}(C_NULL),
@@ -235,10 +251,26 @@ function AbstractFFTs.plan_bfft!(
     return _build_aocl_plan(x, r; forward=false, inplace=true, num_threads=num_threads)
 end
 
-function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T<:Complex{<:AbstractFloat},N,D,P,R}
+function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
     dummy = Array{T}(undef, p.sz)
     return _build_aocl_plan(
         dummy, p.region; forward=!p.forward, inplace=p.inplace, num_threads=Int(p.prob.pthr_fft.num_threads)
+    )
+end
+
+function AbstractFFTs.plan_rfft(
+    x::AbstractArray{T,N}, region; num_threads::Int=1, kws...
+) where {T<:AbstractFloat,N}
+    r = _canonical_region(x, region)
+    return _build_aocl_plan(x, r; forward=true, inplace=false, num_threads=num_threads, is_real=true)
+end
+
+function AbstractFFTs.plan_brfft(
+    x::AbstractArray{Complex{T},N}, d::Integer, region; num_threads::Int=1, kws...
+) where {T<:AbstractFloat,N}
+    r = _canonical_region(x, region)
+    return _build_aocl_plan(
+        x, r; forward=false, inplace=false, num_threads=num_threads, is_real=true, brfft_length=Int(d)
     )
 end
 

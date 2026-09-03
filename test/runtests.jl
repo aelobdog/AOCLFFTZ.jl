@@ -1,7 +1,7 @@
 using Test
 using AOCLFFTZ
 using AbstractFFTs
-using AbstractFFTs: plan_bfft, plan_bfft!, plan_fft, plan_fft!, plan_inv
+using AbstractFFTs: plan_bfft, plan_bfft!, plan_brfft, plan_fft, plan_fft!, plan_inv, plan_rfft
 using LinearAlgebra
 
 import AOCLFFTZ._Bindings as B
@@ -111,6 +111,35 @@ import AOCLFFTZ._Bindings as B
         pf = plan_fft(x, 1)
         pb = plan_bfft(x, 1)
         @test pb * (pf * x) ≈ x * length(x)
+    end
+
+    @testset "plan_rfft and plan_brfft" begin
+        xr = rand(Float64, 8)
+        pr = plan_rfft(xr, 1)
+        @test pr isa AOCLFFTZ.AOCLFFTZPlan
+        @test pr.handle != C_NULL
+        @test size(pr) == size(xr)
+        @test fftdims(pr) == (1,)
+        @test pr.prob.flags.fft_type == 1
+        @test pr.dims isa Vector{B.aoclfftz_dim_t_64_}
+
+        xr32 = rand(Float32, 16)
+        pr32 = plan_rfft(xr32, 1)
+        @test pr32 isa AOCLFFTZ.AOCLFFTZPlan
+        @test pr32.prob.flags.fft_type == 1
+
+        xc = rand(ComplexF64, 5)
+        d = 8
+        pb = plan_brfft(xc, d, 1)
+        @test pb isa AOCLFFTZ.AOCLFFTZPlan
+        @test pb.handle != C_NULL
+        @test size(pb) == size(xc)
+        @test pb.prob.flags.fft_type == 1
+        @test pb.dims[1].n == d
+
+        xc32 = rand(ComplexF32, 9)
+        qb = plan_brfft(xc32, 16, 1)
+        @test qb.dims[1].n == 16
     end
 
     @testset "in-place plans" begin
