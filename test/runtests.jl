@@ -1,7 +1,7 @@
 using Test
 using AOCLFFTZ
 using AbstractFFTs
-using AbstractFFTs: plan_bfft, plan_bfft!, plan_brfft, plan_fft, plan_fft!, plan_inv, plan_rfft
+using AbstractFFTs: fft, ifft, plan_bfft, plan_bfft!, plan_brfft, plan_fft, plan_fft!, plan_inv, plan_rfft, rfft
 using LinearAlgebra
 
 import AOCLFFTZ._Bindings as B
@@ -89,6 +89,27 @@ import AOCLFFTZ._Bindings as B
             @test (finalize(p); true)
             GC.gc()
             @test true
+        end
+
+        @testset "eltype promotion for Real and Integer" begin
+            xr = Float64[1, 2, 3, 4]
+            p = plan_fft(xr, 1)
+            @test p isa AOCLFFTZ.AOCLFFTZPlan
+            @test eltype(p) == ComplexF64
+            @test p * ComplexF64.(xr) ≈ fft(xr)
+
+            xi = Complex{Int64}[1+1im, 2+2im, 3+3im, 4+4im]
+            q = plan_fft(xi, 1)
+            @test eltype(q) == ComplexF64
+            @test q * ComplexF64.(xi) ≈ fft(xi)
+
+            xr32 = Float32[1, 2, 3, 4]
+            r = plan_fft(xr32, 1)
+            @test eltype(r) == ComplexF32
+
+            # high-level fft uses same plan
+            @test fft(xr) ≈ plan_fft(ComplexF64.(xr), 1) * ComplexF64.(xr)
+            @test rfft(xr) ≈ plan_rfft(xr, 1) * xr
         end
     end
 
