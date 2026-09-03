@@ -51,6 +51,18 @@ end
 
 Base.size(p::AOCLFFTZPlan) = p.sz
 
+function AbstractFFTs.fftdims(p::AOCLFFTZPlan)
+    r = p.region
+    if length(r) == 1
+        return r[1]
+    elseif r == Tuple(r[1]:r[end]) && r[1] == 1 && r[end] == length(r)
+        # keep contiguous 1:N as UnitRange to match TestUtils dims like 1:2
+        return r[1]:r[end]
+    else
+        return r
+    end
+end
+
 AbstractFFTs.AdjointStyle(p::AOCLFFTZPlan) =
     p.prob.flags.fft_type == 0 ? FFTAdjointStyle() :
     p.forward ? RFFTAdjointStyle() : IRFFTAdjointStyle(Int(p.dims[1].n))
