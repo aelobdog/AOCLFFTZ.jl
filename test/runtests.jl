@@ -1,7 +1,7 @@
 using Test
 using AOCLFFTZ
 using AbstractFFTs
-using AbstractFFTs: bfft, brfft, fft, ifft, irfft, plan_bfft, plan_bfft!, plan_brfft, plan_fft, plan_fft!, plan_inv, plan_rfft, rfft
+using AbstractFFTs: bfft, bfft!, brfft, fft, fft!, ifft, ifft!, irfft, plan_bfft, plan_bfft!, plan_brfft, plan_fft, plan_fft!, plan_inv, plan_rfft, rfft
 using LinearAlgebra
 
 import AOCLFFTZ._Bindings as B
@@ -274,5 +274,33 @@ import AOCLFFTZ._Bindings as B
         x2 = rand(ComplexF64, 4, 4)
         @test fft(x2) ≈ plan_fft(x2, 1:2) * x2
         @test fft(x2, 1) ≈ plan_fft(x2, 1) * x2
+    end
+
+    @testset "high-level in-place fft! / bfft! / ifft!" begin
+        x = ComplexF64[1, 2, 3, 4]
+        y = copy(x)
+        expected = fft(x)
+        result = fft!(y)
+        @test result === y
+        @test y ≈ expected
+        @test result ≈ expected
+
+        z = ComplexF64[1, 2, 3, 4]
+        w = copy(z)
+        expected_b = bfft(z)
+        result_b = bfft!(w)
+        @test result_b === w
+        @test w ≈ expected_b
+
+        v = ComplexF64[1, 2, 3, 4]
+        u = copy(v)
+        expected_ifft = ifft(v)
+        result_ifft = ifft!(u)
+        @test result_ifft === u
+        @test u ≈ expected_ifft
+
+        # mul! alias still enforced
+        p_in = plan_fft!(x, 1)
+        @test_throws ArgumentError mul!(similar(x), p_in, x)
     end
 end
