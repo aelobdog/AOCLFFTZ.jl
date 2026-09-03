@@ -7,7 +7,9 @@ using AOCL_jll
 using AbstractFFTs
 using LinearAlgebra
 
-import AbstractFFTs: Plan, plan_bfft, plan_brfft, plan_fft, plan_inv, plan_rfft, fftdims
+import AbstractFFTs:
+    AdjointStyle, FFTAdjointStyle, IRFFTAdjointStyle, RFFTAdjointStyle, Plan, ScaledPlan, adjoint_mul,
+    normalization, output_size, plan_bfft, plan_brfft, plan_fft, plan_inv, plan_rfft, fftdims
 import LinearAlgebra: mul!
 
 include("bindings.jl")
@@ -22,7 +24,7 @@ mutable struct AOCLFFTZPlan{T,N,D,P,R} <: Plan{T}
     dims::Vector{D}
     vecs::Vector{D}
     prob::P
-    pinv::Plan{T}
+    pinv::Plan
 
     function AOCLFFTZPlan{T,N,D,P,R}(
         handle::Ptr{Cvoid},
@@ -48,6 +50,10 @@ mutable struct AOCLFFTZPlan{T,N,D,P,R} <: Plan{T}
 end
 
 Base.size(p::AOCLFFTZPlan) = p.sz
+
+AbstractFFTs.AdjointStyle(p::AOCLFFTZPlan) =
+    p.prob.flags.fft_type == 0 ? FFTAdjointStyle() :
+    p.forward ? RFFTAdjointStyle() : IRFFTAdjointStyle(Int(p.dims[1].n))
 
 function _canonical_region(input::AbstractArray, region)
     canonical = region isa Integer ? (Int(region),) : Tuple(Int.(region))
@@ -252,10 +258,40 @@ function AbstractFFTs.plan_bfft!(
 end
 
 function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
-    dummy = Array{T}(undef, p.sz)
-    return _build_aocl_plan(
-        dummy, p.region; forward=!p.forward, inplace=p.inplace, num_threads=Int(p.prob.pthr_fft.num_threads)
-    )
+    is_real = p.prob.flags.fft_type == 1
+    if is_real
+        if p.forward
+            # p is rfft (Real -> Complex), inv is brfft (Complex -> Real) with d
+            d = Int(p.dims[1].n)
+            out_size = _rfft_output_size(p.sz, p.region)
+            dummy = Array{Complex{T}}(undef, out_size)
+            brfft_plan = _build_aocl_plan(
+                dummy, p.region; forward=false, inplace=p.inplace, num_threads=Int(p.prob.pthr_fft.num_threads),
+                is_real=true, brfft_length=d,
+            )
+            scale = normalization(real(T), p.sz, p.region)
+            return ScaledPlan(brfft_plan, scale)
+        else
+            # p is brfft (Complex -> Real), inv is rfft (Real -> Complex)
+            d = Int(p.dims[1].n)
+            out_size = _brfft_output_size(p.sz, p.region, d)
+            RealT = real(T)
+            dummy = Array{RealT}(undef, out_size)
+            rfft_plan = _build_aocl_plan(
+                dummy, p.region; forward=true, inplace=p.inplace, num_threads=Int(p.prob.pthr_fft.num_threads),
+                is_real=true,
+            )
+            scale = normalization(RealT, out_size, p.region)
+            return ScaledPlan(rfft_plan, scale)
+        end
+    else
+        dummy = Array{T}(undef, p.sz)
+        bfft_plan = _build_aocl_plan(
+            dummy, p.region; forward=!p.forward, inplace=p.inplace, num_threads=Int(p.prob.pthr_fft.num_threads)
+        )
+        scale = normalization(T, p.sz, p.region)
+        return ScaledPlan(bfft_plan, scale)
+    end
 end
 
 function AbstractFFTs.plan_rfft(
@@ -341,8 +377,9 @@ function Base.:*(p::AOCLFFTZPlan, x::AbstractArray)
     if size(x) != p.sz
         throw(DimensionMismatch("input size $(size(x)) does not match plan size $(p.sz)"))
     end
+
     if p.inplace
-        throw(ArgumentError("in-place plan requires mul! with y === x; use mul!(x, p, x)"))
+        return mul!(x, p, x)
     end
 
     is_real = p.prob.flags.fft_type == 1

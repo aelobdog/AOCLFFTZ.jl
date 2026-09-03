@@ -1,7 +1,7 @@
 using Test
 using AOCLFFTZ
 using AbstractFFTs
-using AbstractFFTs: bfft, bfft!, brfft, fft, fft!, ifft, ifft!, irfft, plan_bfft, plan_bfft!, plan_brfft, plan_fft, plan_fft!, plan_inv, plan_rfft, rfft
+using AbstractFFTs: AdjointStyle, FFTAdjointStyle, IRFFTAdjointStyle, RFFTAdjointStyle, bfft, bfft!, brfft, fft, fft!, ifft, ifft!, irfft, output_size, plan_bfft, plan_bfft!, plan_brfft, plan_fft, plan_fft!, plan_inv, plan_rfft, rfft
 using LinearAlgebra
 
 import AOCLFFTZ._Bindings as B
@@ -213,21 +213,25 @@ import AOCLFFTZ._Bindings as B
         x = rand(ComplexF64, 4, 4)
         p = plan_fft(x, 1:2)
         q = plan_inv(p)
-        @test q.forward == false
-        @test q.inplace == p.inplace
+        @test q isa AbstractFFTs.ScaledPlan
+        @test q.p isa AOCLFFTZ.AOCLFFTZPlan
+        @test q.p.forward == false
+        @test q.p.inplace == p.inplace
         @test size(q) == size(p)
-        @test q.handle != C_NULL
+        @test q.p.handle != C_NULL
 
         # inv caching
         r = inv(p)
         @test r === inv(p)
         @test isdefined(p, :pinv)
 
-        # bfft * fft = N
+        # bfft * fft = N, inv is scaled ifft
         v = ComplexF64[1, 2, 3, 4]
         pf = plan_fft(v, 1)
-        @test inv(pf) * (pf * v) ≈ v * length(v)
-        @test pf \ (pf * v) ≈ v * length(v)
+        pb = plan_bfft(v, 1)
+        @test pb * (pf * v) ≈ v * length(v)
+        @test inv(pf) * (pf * v) ≈ v
+        @test pf \ (pf * v) ≈ v
     end
 
     @testset "mul! and *" begin
@@ -260,7 +264,7 @@ import AOCLFFTZ._Bindings as B
         x = ComplexF64[1, 2, 3, 4]
         @test fft(x) ≈ plan_fft(x, 1) * x
         @test bfft(x) ≈ plan_bfft(x, 1) * x
-        @test ifft(x) ≈ inv(plan_fft(x, 1)) * x / length(x)
+        @test ifft(x) ≈ inv(plan_fft(x, 1)) * x
         @test ifft(fft(x)) ≈ x
 
         xr = Float64[1, 2, 3, 4, 5, 6, 7, 8]
@@ -302,5 +306,29 @@ import AOCLFFTZ._Bindings as B
         # mul! alias still enforced
         p_in = plan_fft!(x, 1)
         @test_throws ArgumentError mul!(similar(x), p_in, x)
+    end
+
+    @testset "adjoint" begin
+        x = ComplexF64[1, 2, 3, 4]
+        y = ComplexF64[5, 6, 7, 8]
+        p = plan_fft(x, 1)
+        @test AdjointStyle(p) isa FFTAdjointStyle
+        @test p' isa AbstractFFTs.AdjointPlan
+        @test size(p') == output_size(p)
+        @test output_size(p) == size(p)
+        @test dot(y, p * x) ≈ dot(p' * y, x)
+
+        xr = Float64[1, 2, 3, 4, 5, 6, 7, 8]
+        pr = plan_rfft(xr, 1)
+        @test AdjointStyle(pr) isa RFFTAdjointStyle
+        @test output_size(pr) == (5,)
+        @test size(pr') == (5,)
+
+        xc = ComplexF64[1, 2, 3, 4, 5]
+        pb = plan_brfft(xc, 8, 1)
+        @test AdjointStyle(pb) isa IRFFTAdjointStyle
+        @test pb.prob.flags.fft_type == 1
+        @test output_size(pb) == (8,)
+        @test size(pb') == (8,)
     end
 end
