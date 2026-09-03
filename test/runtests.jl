@@ -92,52 +92,92 @@ import AOCLFFTZ._Bindings as B
         end
     end
 
-    @testset "stubs (expect not implemented)" begin
+    @testset "plan_bfft" begin
         x64 = rand(ComplexF64, 4, 4)
+        p = plan_bfft(x64, 1:2)
+        @test p isa AOCLFFTZ.AOCLFFTZPlan
+        @test p.forward == false
+        @test p.inplace == false
+        @test p.handle != C_NULL
+        @test fftdims(p) == (1, 2)
+
         x32 = rand(ComplexF32, 8)
+        q = plan_bfft(x32, 1)
+        @test q.forward == false
+        @test size(q) == size(x32)
 
-        @testset "plan_bfft" begin
-            @test_throws ErrorException plan_bfft(x64, 1:2)
-            @test_throws ErrorException plan_bfft(x32, 1)
-        end
+        # bfft * fft = N
+        x = ComplexF64[1, 2, 3, 4]
+        pf = plan_fft(x, 1)
+        pb = plan_bfft(x, 1)
+        @test pb * (pf * x) ≈ x * length(x)
+    end
 
-        @testset "plan_fft! (in-place)" begin
-            @test_throws ErrorException plan_fft!(x64, 1:2)
-        end
+    @testset "in-place plans" begin
+        x64 = rand(ComplexF64, 4, 4)
+        p = plan_fft!(x64, 1:2)
+        @test p.inplace == true
+        @test p.forward == true
 
-        @testset "plan_bfft! (in-place)" begin
-            @test_throws ErrorException plan_bfft!(x64, 1:2)
-        end
+        q = plan_bfft!(x64, 1:2)
+        @test q.inplace == true
+        @test q.forward == false
 
-        @testset "plan_inv" begin
-            p = plan_fft(x64, 1:2)
-            @test_throws ErrorException plan_inv(p)
-        end
+        # in-place execution requires y === x
+        x = ComplexF64[1, 2, 3, 4]
+        p_in = plan_fft!(x, 1)
+        y = copy(x)
+        mul!(y, p_in, y)
+        @test y ≈ ComplexF64[10, -2+2im, -2, -2-2im]
 
-        @testset "mul! and *" begin
-            x = ComplexF64[1, 2, 3, 4]
-            p = plan_fft(x, 1)
-            y = p * x
-            @test y ≈ ComplexF64[10, -2+2im, -2, -2-2im]
+        bad = similar(x)
+        @test_throws ArgumentError mul!(bad, p_in, x)
+    end
 
-            y2 = similar(x)
-            mul!(y2, p, x)
-            @test y2 == y
+    @testset "plan_inv and inv" begin
+        x = rand(ComplexF64, 4, 4)
+        p = plan_fft(x, 1:2)
+        q = plan_inv(p)
+        @test q.forward == false
+        @test q.inplace == p.inplace
+        @test size(q) == size(p)
+        @test q.handle != C_NULL
 
-            # 2D and single precision
-            x2 = rand(ComplexF32, 4, 4)
-            p2 = plan_fft(x2, 1:2)
-            y2 = p2 * x2
-            @test size(y2) == size(x2)
-            @test y2 isa Vector{ComplexF32} || y2 isa Matrix{ComplexF32}
+        # inv caching
+        r = inv(p)
+        @test r === inv(p)
+        @test isdefined(p, :pinv)
 
-            # size mismatch
-            bad = rand(ComplexF64, 3, 3)
-            @test_throws DimensionMismatch p * bad
-            @test_throws DimensionMismatch mul!(similar(bad), p, bad)
+        # bfft * fft = N
+        v = ComplexF64[1, 2, 3, 4]
+        pf = plan_fft(v, 1)
+        @test inv(pf) * (pf * v) ≈ v * length(v)
+        @test pf \ (pf * v) ≈ v * length(v)
+    end
 
-            # alias checks for out-of-place plan
-            @test_throws ArgumentError mul!(x, p, x)
-        end
+    @testset "mul! and *" begin
+        x = ComplexF64[1, 2, 3, 4]
+        p = plan_fft(x, 1)
+        y = p * x
+        @test y ≈ ComplexF64[10, -2+2im, -2, -2-2im]
+
+        y2 = similar(x)
+        mul!(y2, p, x)
+        @test y2 == y
+
+        # 2D and single precision
+        x2 = rand(ComplexF32, 4, 4)
+        p2 = plan_fft(x2, 1:2)
+        y2 = p2 * x2
+        @test size(y2) == size(x2)
+        @test y2 isa Vector{ComplexF32} || y2 isa Matrix{ComplexF32}
+
+        # size mismatch
+        bad = rand(ComplexF64, 3, 3)
+        @test_throws DimensionMismatch p * bad
+        @test_throws DimensionMismatch mul!(similar(bad), p, bad)
+
+        # alias checks for out-of-place plan
+        @test_throws ArgumentError mul!(x, p, x)
     end
 end

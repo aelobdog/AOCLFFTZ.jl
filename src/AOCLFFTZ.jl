@@ -67,7 +67,7 @@ function _canonical_region(input::AbstractArray, region)
 end
 
 function _build_aocl_plan(
-    input::AbstractArray{T,N}, region::NTuple{R,Int}, forward::Bool, inplace::Bool; num_threads::Int=1
+    input::AbstractArray{T,N}, region::NTuple{R,Int}; forward::Bool, inplace::Bool, num_threads::Int=1
 ) where {T<:Complex{<:AbstractFloat},N,R}
 
     input_size = size(input)
@@ -211,29 +211,35 @@ function AbstractFFTs.plan_fft(
     x::AbstractArray{T,N}, region; num_threads::Int=1, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
     r = _canonical_region(x, region)
-    return _build_aocl_plan(x, r, true, false; num_threads=num_threads)
+    return _build_aocl_plan(x, r; forward=true, inplace=false, num_threads=num_threads)
 end
 
 function AbstractFFTs.plan_bfft(
-    x::AbstractArray{T,N}, region; kws...
+    x::AbstractArray{T,N}, region; num_threads::Int=1, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
-    return error("not implemented")
+    r = _canonical_region(x, region)
+    return _build_aocl_plan(x, r; forward=false, inplace=false, num_threads=num_threads)
 end
 
 function AbstractFFTs.plan_fft!(
-    x::AbstractArray{T,N}, region; kws...
+    x::AbstractArray{T,N}, region; num_threads::Int=1, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
-    return error("not implemented")
+    r = _canonical_region(x, region)
+    return _build_aocl_plan(x, r; forward=true, inplace=true, num_threads=num_threads)
 end
 
 function AbstractFFTs.plan_bfft!(
-    x::AbstractArray{T,N}, region; kws...
+    x::AbstractArray{T,N}, region; num_threads::Int=1, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
-    return error("not implemented")
+    r = _canonical_region(x, region)
+    return _build_aocl_plan(x, r; forward=false, inplace=true, num_threads=num_threads)
 end
 
-function AbstractFFTs.plan_inv(p::AOCLFFTZPlan)
-    return error("not implemented")
+function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T<:Complex{<:AbstractFloat},N,D,P,R}
+    dummy = Array{T}(undef, p.sz)
+    return _build_aocl_plan(
+        dummy, p.region; forward=!p.forward, inplace=p.inplace, num_threads=Int(p.prob.pthr_fft.num_threads)
+    )
 end
 
 function LinearAlgebra.mul!(y::AbstractArray, p::AOCLFFTZPlan, x::AbstractArray)
