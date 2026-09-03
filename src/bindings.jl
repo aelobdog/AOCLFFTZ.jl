@@ -1,6 +1,9 @@
 module _Bindings
 
+using AOCL_jll
 using CEnum: CEnum, @cenum
+
+const aocl_fftz = AOCL_jll.libaocl64
 
 const FFTZ_INT64 = Int64
 const FFTZ_INT32 = Int32
@@ -148,7 +151,8 @@ function aoclfftz_execute(handle)
 end
 
 function aoclfftz_execute_io(handle, in, out)
-    ccall((:aoclfftz_execute_io, aocl_fftz), aoclfftz_error_type, (Ptr{FFTZ_VOID}, Ptr{FFTZ_VOID}, Ptr{FFTZ_VOID}), handle, in, out)
+    ccall((:aoclfftz_execute_io, aocl_fftz), aoclfftz_error_type,
+        (Ptr{FFTZ_VOID}, Ptr{FFTZ_VOID}, Ptr{FFTZ_VOID}), handle, in, out)
 end
 
 function aoclfftz_destroy(handle)
