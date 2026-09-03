@@ -16,7 +16,7 @@ import AOCLFFTZ._Bindings as B
             @test p.forward == true
             @test p.inplace == false
             @test size(p) == size(x64)
-            @test fftdims(p) == (1, 2)
+            @test Tuple(fftdims(p)) == (1, 2)
             @test p.handle != C_NULL
             @test eltype(p) == ComplexF64
             @test p.dims isa Vector{B.aoclfftz_dim_t_64_}
@@ -31,27 +31,27 @@ import AOCLFFTZ._Bindings as B
             @test q isa AbstractFFTs.Plan{ComplexF32}
             @test q.forward == true
             @test size(q) == (8,)
-            @test fftdims(q) == (1,)
+            @test fftdims(q) == 1
             @test q.dims isa Vector{B.aoclfftz_dim_t_64_}
         end
 
         @testset "region is canonicalized" begin
             x64 = rand(ComplexF64, 4, 4)
             r = plan_fft(x64, (2, 1))
-            @test fftdims(r) == (1, 2)
+            @test Tuple(fftdims(r)) == (1, 2)
 
             s = plan_fft(x64, [2, 1])
-            @test fftdims(s) == (1, 2)
+            @test Tuple(fftdims(s)) == (1, 2)
 
             t = plan_fft(x64, 2)
-            @test fftdims(t) == (2,)
+            @test fftdims(t) == 2
         end
 
         @testset "batch handling for 3D" begin
             x3d = rand(ComplexF64, 4, 4, 4)
             p = plan_fft(x3d, 1)
             @test size(p) == size(x3d)
-            @test fftdims(p) == (1,)
+            @test fftdims(p) == 1
             @test length(p.dims) == 1
             @test length(p.vecs) == 2
         end
@@ -107,9 +107,17 @@ import AOCLFFTZ._Bindings as B
             r = plan_fft(xr32, 1)
             @test eltype(r) == ComplexF32
 
-            # high-level fft uses same plan
             @test fft(xr) ≈ plan_fft(ComplexF64.(xr), 1) * ComplexF64.(xr)
             @test rfft(xr) ≈ plan_rfft(xr, 1) * xr
+        end
+
+        @testset "fftdims matches TestUtils convention" begin
+            x = rand(ComplexF64, 4, 4)
+            @test fftdims(plan_fft(x, 1)) == 1
+            @test fftdims(plan_fft(x, 2)) == 2
+            @test fftdims(plan_fft(x, 1:2)) == 1:2
+            @test Tuple(fftdims(plan_fft(x, (1, 2)))) == (1, 2)
+            @test Tuple(fftdims(plan_fft(x, (2, 1)))) == (1, 2)
         end
     end
 
@@ -120,7 +128,7 @@ import AOCLFFTZ._Bindings as B
         @test p.forward == false
         @test p.inplace == false
         @test p.handle != C_NULL
-        @test fftdims(p) == (1, 2)
+        @test Tuple(fftdims(p)) == (1, 2)
 
         x32 = rand(ComplexF32, 8)
         q = plan_bfft(x32, 1)
@@ -140,7 +148,7 @@ import AOCLFFTZ._Bindings as B
         @test pr isa AOCLFFTZ.AOCLFFTZPlan
         @test pr.handle != C_NULL
         @test size(pr) == size(xr)
-        @test fftdims(pr) == (1,)
+        @test fftdims(pr) == 1
         @test pr.prob.flags.fft_type == 1
         @test pr.dims isa Vector{B.aoclfftz_dim_t_64_}
 
