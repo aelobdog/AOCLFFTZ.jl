@@ -51,6 +51,10 @@ end
 
 Base.size(p::AOCLFFTZPlan) = p.sz
 
+function version()
+    return unsafe_string(B.aoclfftz_version())
+end
+
 function AbstractFFTs.fftdims(p::AOCLFFTZPlan)
     r = p.region
     if length(r) == 1
@@ -343,6 +347,10 @@ function AbstractFFTs.plan_brfft(
 ) where {T<:AbstractFloat,N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
+    first_dim = first(r)
+    if size(y, first_dim) != Int(d) ÷ 2 + 1
+        throw(ArgumentError("brfft length $d inconsistent with size $(size(y, first_dim)) on dim $first_dim: expected $(Int(d) ÷ 2 + 1)"))
+    end
     return _build_aocl_plan(
         y, r; forward=false, inplace=false, num_threads=num_threads, opt_level=opt_level, is_real=true, brfft_length=Int(d)
     )
@@ -358,6 +366,42 @@ function _brfft_output_size(input_size::NTuple{N,Int}, region::NTuple{R,Int}, d:
     ntuple(i -> i == first_dim ? d : input_size[i], Val(N))
 end
 
+function _check_input_strides(p::AOCLFFTZPlan, x::AbstractArray)
+    actual = strides(x)
+    for (i, d) in enumerate(p.region)
+        if Int(p.dims[i].in_stride) != actual[d]
+            throw(ArgumentError("input stride on dim $d ($(actual[d])) does not match plan (built with $(Int(p.dims[i].in_stride))); plans are stride-specific, replan for this layout"))
+        end
+    end
+    vec_index = 0
+    for d in 1:length(p.sz)
+        if !(d in p.region)
+            vec_index += 1
+            if Int(p.vecs[vec_index].in_stride) != actual[d]
+                throw(ArgumentError("input stride on batch dim $d ($(actual[d])) does not match plan (built with $(Int(p.vecs[vec_index].in_stride))); plans are stride-specific, replan for this layout"))
+            end
+        end
+    end
+end
+
+function _check_output_strides(p::AOCLFFTZPlan, y::AbstractArray)
+    actual = strides(y)
+    for (i, d) in enumerate(p.region)
+        if Int(p.dims[i].out_stride) != actual[d]
+            throw(ArgumentError("output stride on dim $d ($(actual[d])) does not match plan (built with $(Int(p.dims[i].out_stride))); plans are stride-specific, replan for this layout"))
+        end
+    end
+    vec_index = 0
+    for d in 1:length(p.sz)
+        if !(d in p.region)
+            vec_index += 1
+            if Int(p.vecs[vec_index].out_stride) != actual[d]
+                throw(ArgumentError("output stride on batch dim $d ($(actual[d])) does not match plan (built with $(Int(p.vecs[vec_index].out_stride))); plans are stride-specific, replan for this layout"))
+            end
+        end
+    end
+end
+
 function LinearAlgebra.mul!(y::AbstractArray, p::AOCLFFTZPlan, x::AbstractArray)
     is_real = p.prob.flags.fft_type == 1
 
@@ -369,6 +413,7 @@ function LinearAlgebra.mul!(y::AbstractArray, p::AOCLFFTZPlan, x::AbstractArray)
     if eltype(x) != eltype(p)
         throw(ArgumentError("input eltype $(eltype(x)) does not match plan eltype $(eltype(p))"))
     end
+    _check_input_strides(p, x)
 
     if is_real
         if p.forward
@@ -398,6 +443,9 @@ function LinearAlgebra.mul!(y::AbstractArray, p::AOCLFFTZPlan, x::AbstractArray)
         if eltype(y) != eltype(p)
             throw(ArgumentError("output eltype $(eltype(y)) does not match plan eltype $(eltype(p))"))
         end
+        # output shapes match the plan here, so stored out-strides apply;
+        # skipped for real plans above, where output shapes differ from input
+        _check_output_strides(p, y)
     end
 
     if p.inplace

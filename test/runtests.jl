@@ -301,6 +301,43 @@ import AOCLFFTZ._Bindings as B
         @test_throws ArgumentError mul!(x, p, x)
     end
 
+    @testset "plans are stride-specific" begin
+        x = rand(ComplexF64, 4, 4)
+        p = plan_fft(x, 1:2)
+        @test_throws ArgumentError p * transpose(x)
+        @test_throws ArgumentError mul!(similar(transpose(x)), p, transpose(x))
+
+        big = rand(ComplexF64, 8, 8)
+        v = @view big[1:4, 1:4]
+        q = plan_fft(v, 1:2)
+        @test q.handle != C_NULL
+        # * allocates contiguous output, which cannot match a strided plan
+        @test_throws ArgumentError q * v
+        # mul! with same-layout buffers is correct
+        big2 = rand(ComplexF64, 8, 8)
+        w = @view big2[1:4, 1:4]
+        mul!(w, q, v)
+        @test Matrix(w) ≈ plan_fft(Matrix(v), 1:2) * Matrix(v)
+
+        # in-place on a view
+        v2 = @view big[1:4, 1:4]
+        qi = plan_fft!(v2, 1:2)
+        orig = Matrix(v2)
+        mul!(v2, qi, v2)
+        @test Matrix(v2) ≈ plan_fft(orig, 1:2) * orig
+    end
+
+    @testset "brfft validates length" begin
+        xc = rand(ComplexF64, 5)
+        @test plan_brfft(xc, 8, 1).dims[1].n == 8
+        @test_throws ArgumentError plan_brfft(xc, 7, 1)
+        @test_throws ArgumentError plan_brfft(xc, 10, 1)
+    end
+
+    @testset "version reports library" begin
+        @test startswith(AOCLFFTZ.version(), "AOCL-FFTZ")
+    end
+
     @testset "high-level wrappers fft/bfft/ifft/rfft" begin
         x = ComplexF64[1, 2, 3, 4]
         @test fft(x) ≈ plan_fft(x, 1) * x
