@@ -162,6 +162,22 @@ import AOCLFFTZ._Bindings as B
             @test r.p.prob.cntrl_params.opt_level == 3
         end
 
+        @testset "dynamic_load_model is configurable" begin
+            x = rand(ComplexF64, 4, 4)
+            p = plan_fft(x, 1:2)
+            @test p.prob.pthr_fft.dynamic_load_model == 1
+
+            q = plan_fft(x, 1:2; dynamic_load_model=0, num_threads=4)
+            @test q.prob.pthr_fft.dynamic_load_model == 0
+            @test q.prob.pthr_fft.num_threads == 4
+            @test q * x ≈ p * x
+
+            @test_throws ArgumentError plan_fft(x, 1:2; dynamic_load_model=2)
+
+            r = plan_inv(q)
+            @test r.p.prob.pthr_fft.dynamic_load_model == 0
+        end
+
         @testset "fftdims matches TestUtils convention" begin
             x = rand(ComplexF64, 4, 4)
             @test fftdims(plan_fft(x, 1)) == 1

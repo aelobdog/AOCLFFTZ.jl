@@ -115,7 +115,7 @@ end
 
 function _build_aocl_plan(
     input::StridedArray{T,N}, region::NTuple{R,Int}; forward::Bool, inplace::Bool, num_threads::Int=1,
-    opt_level::Int=3, is_real::Bool=false, brfft_length::Union{Nothing,Int}=nothing
+    opt_level::Int=3, dynamic_load_model::Int=1, is_real::Bool=false, brfft_length::Union{Nothing,Int}=nothing
 ) where {T,N,R}
 
     if !(T == Float32 || T == ComplexF32 || T == Float64 || T == ComplexF64)
@@ -123,6 +123,9 @@ function _build_aocl_plan(
     end
     if !(0 <= opt_level <= 3)
         throw(ArgumentError("opt_level must be 0-3, got $opt_level"))
+    end
+    if !(dynamic_load_model == 0 || dynamic_load_model == 1)
+        throw(ArgumentError("dynamic_load_model must be 0 or 1, got $dynamic_load_model"))
     end
     if num_threads < 1
         throw(ArgumentError("num_threads must be >= 1, got $num_threads"))
@@ -167,10 +170,8 @@ function _build_aocl_plan(
     )
 
     thread_config = B.aoclfftz_smp_pfft_t(
-        # number of threads to use
         Int32(num_threads),
-        # dynamic load model enabled
-        UInt32(1)
+        UInt32(dynamic_load_model)
     )
 
     control_params = B.aoclfftz_cntrl_params_t(
@@ -281,40 +282,41 @@ function _build_aocl_plan(
 end
 
 function AbstractFFTs.plan_fft(
-    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, dynamic_load_model::Int=1, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
-    return _build_aocl_plan(y, r; forward=true, inplace=false, num_threads=num_threads, opt_level=opt_level)
+    return _build_aocl_plan(y, r; forward=true, inplace=false, num_threads=num_threads, opt_level=opt_level, dynamic_load_model=dynamic_load_model)
 end
 
 function AbstractFFTs.plan_bfft(
-    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, dynamic_load_model::Int=1, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
-    return _build_aocl_plan(y, r; forward=false, inplace=false, num_threads=num_threads, opt_level=opt_level)
+    return _build_aocl_plan(y, r; forward=false, inplace=false, num_threads=num_threads, opt_level=opt_level, dynamic_load_model=dynamic_load_model)
 end
 
 function AbstractFFTs.plan_fft!(
-    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, dynamic_load_model::Int=1, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
-    return _build_aocl_plan(y, r; forward=true, inplace=true, num_threads=num_threads, opt_level=opt_level)
+    return _build_aocl_plan(y, r; forward=true, inplace=true, num_threads=num_threads, opt_level=opt_level, dynamic_load_model=dynamic_load_model)
 end
 
 function AbstractFFTs.plan_bfft!(
-    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, dynamic_load_model::Int=1, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
-    return _build_aocl_plan(y, r; forward=false, inplace=true, num_threads=num_threads, opt_level=opt_level)
+    return _build_aocl_plan(y, r; forward=false, inplace=true, num_threads=num_threads, opt_level=opt_level, dynamic_load_model=dynamic_load_model)
 end
 
 function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
     num_threads = Int(p.prob.pthr_fft.num_threads)
     opt_level = Int(p.prob.cntrl_params.opt_level)
+    dynamic_load_model = Int(p.prob.pthr_fft.dynamic_load_model)
     is_real = p.prob.flags.fft_type == 1
     if is_real
         if p.forward
@@ -324,7 +326,7 @@ function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
             dummy = Array{Complex{T}}(undef, out_size)
             brfft_plan = _build_aocl_plan(
                 dummy, p.region; forward=false, inplace=p.inplace, num_threads=num_threads,
-                opt_level=opt_level, is_real=true, brfft_length=d,
+                opt_level=opt_level, dynamic_load_model=dynamic_load_model, is_real=true, brfft_length=d,
             )
             scale = normalization(real(T), p.sz, p.region)
             return ScaledPlan(brfft_plan, scale)
@@ -336,7 +338,7 @@ function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
             dummy = Array{RealT}(undef, out_size)
             rfft_plan = _build_aocl_plan(
                 dummy, p.region; forward=true, inplace=p.inplace, num_threads=num_threads,
-                opt_level=opt_level, is_real=true,
+                opt_level=opt_level, dynamic_load_model=dynamic_load_model, is_real=true,
             )
             scale = normalization(RealT, out_size, p.region)
             return ScaledPlan(rfft_plan, scale)
@@ -344,7 +346,7 @@ function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
     else
         dummy = Array{T}(undef, p.sz)
         bfft_plan = _build_aocl_plan(
-            dummy, p.region; forward=!p.forward, inplace=p.inplace, num_threads=num_threads, opt_level=opt_level
+            dummy, p.region; forward=!p.forward, inplace=p.inplace, num_threads=num_threads, opt_level=opt_level, dynamic_load_model=dynamic_load_model
         )
         scale = normalization(T, p.sz, p.region)
         return ScaledPlan(bfft_plan, scale)
@@ -352,15 +354,15 @@ function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
 end
 
 function AbstractFFTs.plan_rfft(
-    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, dynamic_load_model::Int=1, kws...
 ) where {T<:AbstractFloat,N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
-    return _build_aocl_plan(y, r; forward=true, inplace=false, num_threads=num_threads, opt_level=opt_level, is_real=true)
+    return _build_aocl_plan(y, r; forward=true, inplace=false, num_threads=num_threads, opt_level=opt_level, dynamic_load_model=dynamic_load_model, is_real=true)
 end
 
 function AbstractFFTs.plan_brfft(
-    x::StridedArray{Complex{T},N}, d::Integer, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, kws...
+    x::StridedArray{Complex{T},N}, d::Integer, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, dynamic_load_model::Int=1, kws...
 ) where {T<:AbstractFloat,N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
@@ -369,7 +371,7 @@ function AbstractFFTs.plan_brfft(
         throw(ArgumentError("brfft length $d inconsistent with size $(size(y, first_dim)) on dim $first_dim: expected $(Int(d) ÷ 2 + 1)"))
     end
     return _build_aocl_plan(
-        y, r; forward=false, inplace=false, num_threads=num_threads, opt_level=opt_level, is_real=true, brfft_length=Int(d)
+        y, r; forward=false, inplace=false, num_threads=num_threads, opt_level=opt_level, dynamic_load_model=dynamic_load_model, is_real=true, brfft_length=Int(d)
     )
 end
 
