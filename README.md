@@ -32,6 +32,17 @@ yr = rfft(xr)
 In-place plans (`plan_fft!`, `fft!`) and `bfft` / `ifft` / `brfft` work as
 expected. Plans are freed automatically when garbage collected.
 
+## Notes
+
+- This package covers the `AbstractFFTs.jl` interface: `fft`/`ifft`/`bfft`,
+  `rfft`/`brfft`/`irfft`, in-place variants, and planned execution with
+  `*`/`mul!`.
+- Threading defaults to 1; set it globally with
+  `AOCLFFTZ.set_num_threads(n)` or per plan with `num_threads=n`.
+- Planning accepts `opt_level` (0-3, default 3) and `dynamic_load_model`
+  (0 or 1, default 1).
+- Only one FFT backend should be loaded in a session.
+
 Requires Julia 1.10+, Linux x86_64.
 
 For bugs and issues and more information related to AOCL FFTZ itself, see the
