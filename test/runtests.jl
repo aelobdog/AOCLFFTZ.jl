@@ -304,8 +304,10 @@ import AOCLFFTZ._Bindings as B
     @testset "plans are stride-specific" begin
         x = rand(ComplexF64, 4, 4)
         p = plan_fft(x, 1:2)
-        @test_throws ArgumentError p * transpose(x)
-        @test_throws ArgumentError mul!(similar(transpose(x)), p, transpose(x))
+        # Transpose is not StridedArray: generic AbstractFFTs fallback copies, so * works
+        @test p * transpose(x) ≈ plan_fft(Matrix(transpose(x)), 1:2) * Matrix(transpose(x))
+        # but mul! directly on non-strided input has no method
+        @test_throws MethodError mul!(similar(transpose(x)), p, transpose(x))
 
         big = rand(ComplexF64, 8, 8)
         v = @view big[1:4, 1:4]

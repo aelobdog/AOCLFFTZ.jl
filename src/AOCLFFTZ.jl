@@ -71,7 +71,7 @@ AbstractFFTs.AdjointStyle(p::AOCLFFTZPlan) =
     p.prob.flags.fft_type == 0 ? FFTAdjointStyle() :
     p.forward ? RFFTAdjointStyle() : IRFFTAdjointStyle(Int(p.dims[1].n))
 
-function _canonical_region(input::AbstractArray, region)
+function _canonical_region(input::StridedArray, region)
     canonical = region isa Integer ? (Int(region),) : Tuple(Int.(region))
     canonical = Tuple(sort(collect(canonical)))
 
@@ -88,7 +88,7 @@ function _canonical_region(input::AbstractArray, region)
     return canonical
 end
 
-function _promote_input(x::AbstractArray)
+function _promote_input(x::StridedArray)
     T = eltype(x)
     if T == Complex{Float16}
         return AbstractFFTs.complexfloat(x)
@@ -100,7 +100,7 @@ function _promote_input(x::AbstractArray)
 end
 
 function _build_aocl_plan(
-    input::AbstractArray{T,N}, region::NTuple{R,Int}; forward::Bool, inplace::Bool, num_threads::Int=1,
+    input::StridedArray{T,N}, region::NTuple{R,Int}; forward::Bool, inplace::Bool, num_threads::Int=1,
     opt_level::Int=3, is_real::Bool=false, brfft_length::Union{Nothing,Int}=nothing
 ) where {T,N,R}
 
@@ -264,7 +264,7 @@ function _build_aocl_plan(
 end
 
 function AbstractFFTs.plan_fft(
-    x::AbstractArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
@@ -272,7 +272,7 @@ function AbstractFFTs.plan_fft(
 end
 
 function AbstractFFTs.plan_bfft(
-    x::AbstractArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
@@ -280,7 +280,7 @@ function AbstractFFTs.plan_bfft(
 end
 
 function AbstractFFTs.plan_fft!(
-    x::AbstractArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
@@ -288,7 +288,7 @@ function AbstractFFTs.plan_fft!(
 end
 
 function AbstractFFTs.plan_bfft!(
-    x::AbstractArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
@@ -335,7 +335,7 @@ function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
 end
 
 function AbstractFFTs.plan_rfft(
-    x::AbstractArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
 ) where {T<:AbstractFloat,N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
@@ -343,7 +343,7 @@ function AbstractFFTs.plan_rfft(
 end
 
 function AbstractFFTs.plan_brfft(
-    x::AbstractArray{Complex{T},N}, d::Integer, region; num_threads::Int=1, opt_level::Int=3, kws...
+    x::StridedArray{Complex{T},N}, d::Integer, region; num_threads::Int=1, opt_level::Int=3, kws...
 ) where {T<:AbstractFloat,N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
@@ -402,7 +402,7 @@ function _check_output_strides(p::AOCLFFTZPlan, y::AbstractArray)
     end
 end
 
-function LinearAlgebra.mul!(y::AbstractArray, p::AOCLFFTZPlan, x::AbstractArray)
+function LinearAlgebra.mul!(y::StridedArray, p::AOCLFFTZPlan, x::StridedArray)
     is_real = p.prob.flags.fft_type == 1
 
     if size(x) != p.sz
@@ -473,7 +473,7 @@ function LinearAlgebra.mul!(y::AbstractArray, p::AOCLFFTZPlan, x::AbstractArray)
     return y
 end
 
-function Base.:*(p::AOCLFFTZPlan, x::AbstractArray)
+function Base.:*(p::AOCLFFTZPlan, x::StridedArray)
     if size(x) != p.sz
         throw(DimensionMismatch("input size $(size(x)) does not match plan size $(p.sz)"))
     end
