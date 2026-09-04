@@ -51,6 +51,20 @@ end
 
 Base.size(p::AOCLFFTZPlan) = p.sz
 
+const _default_num_threads = Ref{Int}(1)
+
+function set_num_threads(n::Integer)
+    if n < 1
+        throw(ArgumentError("num_threads must be >= 1, got $n"))
+    end
+    _default_num_threads[] = n
+    return n
+end
+
+function get_num_threads()
+    return _default_num_threads[]
+end
+
 function version()
     return unsafe_string(B.aoclfftz_version())
 end
@@ -109,6 +123,9 @@ function _build_aocl_plan(
     end
     if !(0 <= opt_level <= 3)
         throw(ArgumentError("opt_level must be 0-3, got $opt_level"))
+    end
+    if num_threads < 1
+        throw(ArgumentError("num_threads must be >= 1, got $num_threads"))
     end
 
     input_size = size(input)
@@ -264,7 +281,7 @@ function _build_aocl_plan(
 end
 
 function AbstractFFTs.plan_fft(
-    x::StridedArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
@@ -272,7 +289,7 @@ function AbstractFFTs.plan_fft(
 end
 
 function AbstractFFTs.plan_bfft(
-    x::StridedArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
@@ -280,7 +297,7 @@ function AbstractFFTs.plan_bfft(
 end
 
 function AbstractFFTs.plan_fft!(
-    x::StridedArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
@@ -288,7 +305,7 @@ function AbstractFFTs.plan_fft!(
 end
 
 function AbstractFFTs.plan_bfft!(
-    x::StridedArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
@@ -335,7 +352,7 @@ function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
 end
 
 function AbstractFFTs.plan_rfft(
-    x::StridedArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
+    x::StridedArray{T,N}, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, kws...
 ) where {T<:AbstractFloat,N}
     y = _promote_input(x)
     r = _canonical_region(y, region)
@@ -343,7 +360,7 @@ function AbstractFFTs.plan_rfft(
 end
 
 function AbstractFFTs.plan_brfft(
-    x::StridedArray{Complex{T},N}, d::Integer, region; num_threads::Int=1, opt_level::Int=3, kws...
+    x::StridedArray{Complex{T},N}, d::Integer, region; num_threads::Int=_default_num_threads[], opt_level::Int=3, kws...
 ) where {T<:AbstractFloat,N}
     y = _promote_input(x)
     r = _canonical_region(y, region)

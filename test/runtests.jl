@@ -64,6 +64,24 @@ import AOCLFFTZ._Bindings as B
 
             p4 = plan_fft(x64, 1:2; num_threads=4)
             @test p4.prob.pthr_fft.num_threads == 4
+
+            @test_throws ArgumentError plan_fft(x64, 1:2; num_threads=0)
+        end
+
+        @testset "global default num_threads" begin
+            x64 = rand(ComplexF64, 4, 4)
+            @test AOCLFFTZ.get_num_threads() == 1
+            try
+                AOCLFFTZ.set_num_threads(4)
+                @test AOCLFFTZ.get_num_threads() == 4
+                @test plan_fft(x64, 1:2).prob.pthr_fft.num_threads == 4
+                # explicit kwarg overrides the global
+                @test plan_fft(x64, 1:2; num_threads=2).prob.pthr_fft.num_threads == 2
+                @test_throws ArgumentError AOCLFFTZ.set_num_threads(0)
+            finally
+                AOCLFFTZ.set_num_threads(1)
+            end
+            @test AOCLFFTZ.get_num_threads() == 1
         end
 
         @testset "rejects bad region" begin
