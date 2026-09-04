@@ -111,6 +111,39 @@ import AOCLFFTZ._Bindings as B
             @test rfft(xr) ≈ plan_rfft(xr, 1) * xr
         end
 
+        @testset "Float16 promotes to Float32" begin
+            x16 = ComplexF16[1, 2, 3, 4]
+            p = plan_fft(x16, 1)
+            @test eltype(p) == ComplexF32
+            @test p.handle != C_NULL
+            @test p * ComplexF32.(x16) ≈ ComplexF64[10, -2+2im, -2, -2-2im]
+            @test fft(x16) ≈ ComplexF64[10, -2+2im, -2, -2-2im]
+
+            xr16 = Float16[1, 2, 3, 4, 5, 6, 7, 8]
+            pr = plan_rfft(xr16, 1)
+            @test eltype(pr) == Float32
+            @test size(pr * Float32.(xr16)) == (5,)
+
+            x = ComplexF32[1, 2, 3, 4]
+            @test_throws ArgumentError mul!(similar(x), p, x16)
+        end
+
+        @testset "opt_level is configurable" begin
+            x = rand(ComplexF64, 4, 4)
+            p = plan_fft(x, 1:2)
+            @test p.prob.cntrl_params.opt_level == 3
+
+            q = plan_fft(x, 1:2; opt_level=0)
+            @test q.prob.cntrl_params.opt_level == 0
+            @test q * x ≈ p * x
+
+            @test_throws ArgumentError plan_fft(x, 1:2; opt_level=4)
+            @test_throws ArgumentError plan_fft(x, 1:2; opt_level=-1)
+
+            r = plan_inv(p)
+            @test r.p.prob.cntrl_params.opt_level == 3
+        end
+
         @testset "fftdims matches TestUtils convention" begin
             x = rand(ComplexF64, 4, 4)
             @test fftdims(plan_fft(x, 1)) == 1

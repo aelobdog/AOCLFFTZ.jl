@@ -84,10 +84,28 @@ function _canonical_region(input::AbstractArray, region)
     return canonical
 end
 
+function _promote_input(x::AbstractArray)
+    T = eltype(x)
+    if T == Complex{Float16}
+        return AbstractFFTs.complexfloat(x)
+    elseif T == Float16
+        return AbstractFFTs.realfloat(x)
+    else
+        return x
+    end
+end
+
 function _build_aocl_plan(
     input::AbstractArray{T,N}, region::NTuple{R,Int}; forward::Bool, inplace::Bool, num_threads::Int=1,
-    is_real::Bool=false, brfft_length::Union{Nothing,Int}=nothing
+    opt_level::Int=3, is_real::Bool=false, brfft_length::Union{Nothing,Int}=nothing
 ) where {T,N,R}
+
+    if !(T == Float32 || T == ComplexF32 || T == Float64 || T == ComplexF64)
+        throw(ArgumentError("unsupported element type $T; only Float32/Float64 and Complex variants are supported"))
+    end
+    if !(0 <= opt_level <= 3)
+        throw(ArgumentError("opt_level must be 0-3, got $opt_level"))
+    end
 
     input_size = size(input)
     input_strides = strides(input)
@@ -135,8 +153,8 @@ function _build_aocl_plan(
     )
 
     control_params = B.aoclfftz_cntrl_params_t(
-        # use AVX512 if available
-        Int32(3),
+        # optimization level 0-3
+        Int32(opt_level),
         # optimizations enabled
         Int32(0),
         # logging disabled
@@ -242,34 +260,40 @@ function _build_aocl_plan(
 end
 
 function AbstractFFTs.plan_fft(
-    x::AbstractArray{T,N}, region; num_threads::Int=1, kws...
+    x::AbstractArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
-    r = _canonical_region(x, region)
-    return _build_aocl_plan(x, r; forward=true, inplace=false, num_threads=num_threads)
+    y = _promote_input(x)
+    r = _canonical_region(y, region)
+    return _build_aocl_plan(y, r; forward=true, inplace=false, num_threads=num_threads, opt_level=opt_level)
 end
 
 function AbstractFFTs.plan_bfft(
-    x::AbstractArray{T,N}, region; num_threads::Int=1, kws...
+    x::AbstractArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
-    r = _canonical_region(x, region)
-    return _build_aocl_plan(x, r; forward=false, inplace=false, num_threads=num_threads)
+    y = _promote_input(x)
+    r = _canonical_region(y, region)
+    return _build_aocl_plan(y, r; forward=false, inplace=false, num_threads=num_threads, opt_level=opt_level)
 end
 
 function AbstractFFTs.plan_fft!(
-    x::AbstractArray{T,N}, region; num_threads::Int=1, kws...
+    x::AbstractArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
-    r = _canonical_region(x, region)
-    return _build_aocl_plan(x, r; forward=true, inplace=true, num_threads=num_threads)
+    y = _promote_input(x)
+    r = _canonical_region(y, region)
+    return _build_aocl_plan(y, r; forward=true, inplace=true, num_threads=num_threads, opt_level=opt_level)
 end
 
 function AbstractFFTs.plan_bfft!(
-    x::AbstractArray{T,N}, region; num_threads::Int=1, kws...
+    x::AbstractArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
 ) where {T<:Complex{<:AbstractFloat},N}
-    r = _canonical_region(x, region)
-    return _build_aocl_plan(x, r; forward=false, inplace=true, num_threads=num_threads)
+    y = _promote_input(x)
+    r = _canonical_region(y, region)
+    return _build_aocl_plan(y, r; forward=false, inplace=true, num_threads=num_threads, opt_level=opt_level)
 end
 
 function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
+    num_threads = Int(p.prob.pthr_fft.num_threads)
+    opt_level = Int(p.prob.cntrl_params.opt_level)
     is_real = p.prob.flags.fft_type == 1
     if is_real
         if p.forward
@@ -278,8 +302,8 @@ function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
             out_size = _rfft_output_size(p.sz, p.region)
             dummy = Array{Complex{T}}(undef, out_size)
             brfft_plan = _build_aocl_plan(
-                dummy, p.region; forward=false, inplace=p.inplace, num_threads=Int(p.prob.pthr_fft.num_threads),
-                is_real=true, brfft_length=d,
+                dummy, p.region; forward=false, inplace=p.inplace, num_threads=num_threads,
+                opt_level=opt_level, is_real=true, brfft_length=d,
             )
             scale = normalization(real(T), p.sz, p.region)
             return ScaledPlan(brfft_plan, scale)
@@ -290,8 +314,8 @@ function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
             RealT = real(T)
             dummy = Array{RealT}(undef, out_size)
             rfft_plan = _build_aocl_plan(
-                dummy, p.region; forward=true, inplace=p.inplace, num_threads=Int(p.prob.pthr_fft.num_threads),
-                is_real=true,
+                dummy, p.region; forward=true, inplace=p.inplace, num_threads=num_threads,
+                opt_level=opt_level, is_real=true,
             )
             scale = normalization(RealT, out_size, p.region)
             return ScaledPlan(rfft_plan, scale)
@@ -299,7 +323,7 @@ function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
     else
         dummy = Array{T}(undef, p.sz)
         bfft_plan = _build_aocl_plan(
-            dummy, p.region; forward=!p.forward, inplace=p.inplace, num_threads=Int(p.prob.pthr_fft.num_threads)
+            dummy, p.region; forward=!p.forward, inplace=p.inplace, num_threads=num_threads, opt_level=opt_level
         )
         scale = normalization(T, p.sz, p.region)
         return ScaledPlan(bfft_plan, scale)
@@ -307,18 +331,20 @@ function AbstractFFTs.plan_inv(p::AOCLFFTZPlan{T,N,D,P,R}) where {T,N,D,P,R}
 end
 
 function AbstractFFTs.plan_rfft(
-    x::AbstractArray{T,N}, region; num_threads::Int=1, kws...
+    x::AbstractArray{T,N}, region; num_threads::Int=1, opt_level::Int=3, kws...
 ) where {T<:AbstractFloat,N}
-    r = _canonical_region(x, region)
-    return _build_aocl_plan(x, r; forward=true, inplace=false, num_threads=num_threads, is_real=true)
+    y = _promote_input(x)
+    r = _canonical_region(y, region)
+    return _build_aocl_plan(y, r; forward=true, inplace=false, num_threads=num_threads, opt_level=opt_level, is_real=true)
 end
 
 function AbstractFFTs.plan_brfft(
-    x::AbstractArray{Complex{T},N}, d::Integer, region; num_threads::Int=1, kws...
+    x::AbstractArray{Complex{T},N}, d::Integer, region; num_threads::Int=1, opt_level::Int=3, kws...
 ) where {T<:AbstractFloat,N}
-    r = _canonical_region(x, region)
+    y = _promote_input(x)
+    r = _canonical_region(y, region)
     return _build_aocl_plan(
-        x, r; forward=false, inplace=false, num_threads=num_threads, is_real=true, brfft_length=Int(d)
+        y, r; forward=false, inplace=false, num_threads=num_threads, opt_level=opt_level, is_real=true, brfft_length=Int(d)
     )
 end
 
@@ -339,12 +365,20 @@ function LinearAlgebra.mul!(y::AbstractArray, p::AOCLFFTZPlan, x::AbstractArray)
         throw(DimensionMismatch("input size $(size(x)) does not match plan size $(p.sz)"))
     end
 
+    # element types must match the plan exactly; convert explicitly (or via *) beforehand
+    if eltype(x) != eltype(p)
+        throw(ArgumentError("input eltype $(eltype(x)) does not match plan eltype $(eltype(p))"))
+    end
+
     if is_real
         if p.forward
             # rfft: Real in, Complex out
             expected = _rfft_output_size(p.sz, p.region)
             if size(y) != expected
                 throw(DimensionMismatch("output size $(size(y)) does not match rfft output $expected"))
+            end
+            if eltype(y) != Complex{eltype(p)}
+                throw(ArgumentError("output eltype $(eltype(y)) does not match rfft output Complex{$(eltype(p))}"))
             end
         else
             # brfft: Complex in, Real out
@@ -353,10 +387,16 @@ function LinearAlgebra.mul!(y::AbstractArray, p::AOCLFFTZPlan, x::AbstractArray)
             if size(y) != expected
                 throw(DimensionMismatch("output size $(size(y)) does not match brfft output $expected for d=$d"))
             end
+            if eltype(y) != real(eltype(p))
+                throw(ArgumentError("output eltype $(eltype(y)) does not match brfft output $(real(eltype(p)))"))
+            end
         end
     else
         if size(y) != p.sz
             throw(DimensionMismatch("output size $(size(y)) does not match plan size $(p.sz)"))
+        end
+        if eltype(y) != eltype(p)
+            throw(ArgumentError("output eltype $(eltype(y)) does not match plan eltype $(eltype(p))"))
         end
     end
 
@@ -388,6 +428,11 @@ end
 function Base.:*(p::AOCLFFTZPlan, x::AbstractArray)
     if size(x) != p.sz
         throw(DimensionMismatch("input size $(size(x)) does not match plan size $(p.sz)"))
+    end
+
+    # convert sub-32-bit or mismatched inputs to the plan eltype (e.g. Float16 -> Float32)
+    if eltype(x) != eltype(p)
+        x = eltype(p).(x)
     end
 
     if p.inplace
